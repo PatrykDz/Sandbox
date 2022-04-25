@@ -1,5 +1,7 @@
-image:
-  file: .gitpod.Dockerfile
+image: gitpod/workspace-full
+
+# image:
+#   file: .gitpod.Dockerfile
 
 # image: gitpod/workspace-full
 # image: gitpod/workspace-dotnet
