@@ -10,3 +10,6 @@ ports:
 
 # image: gitpod/workspace-full
 # image: gitpod/workspace-dotnet
+
+image:
+  file: .gitpod.Dockerfile
