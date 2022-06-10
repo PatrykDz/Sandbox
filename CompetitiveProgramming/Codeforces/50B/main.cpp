@@ -8,7 +8,7 @@ int main() {
   cin >> S;
 
   int n = S.size();
-  int numberOfPairs = 0;
+  long long numberOfPairs = 0;
 
   // for (int i = 0; i < n; i++) {
   //   for (int j = 0; j < n; j++) {
