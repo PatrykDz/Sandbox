@@ -5,7 +5,9 @@ use std::io::prelude::*;
 fn main() {
   let listener = TcpListener::bind("127.0.0.1:1234").unwrap();
   println!("Listening for connections...");
-  
+
+  listener.
+
   for stream in listener.incoming() {
     let s: TcpStream = stream.unwrap();
 
