@@ -1,0 +1,12 @@
+workspace = { members = ["Rust/rust-1", "Rust/rust-3"] }
+[package]
+name = "Fun"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "Fun"
+path = "./Rust/rust-3/src"
+
+
+[dependencies]
