@@ -1,4 +1,4 @@
-workspace = { members = ["Rust/rust-1", "Rust/rust-3"] }
+workspace = { members = ["Rust/rust-1", "Rust/rust-3", "Rust/rust-web-server-1"] }
 [package]
 name = "Fun"
 version = "0.1.0"

@@ -13,3 +13,7 @@ version = "0.1.0"
 [[package]]
 name = "rust-3"
 version = "0.1.0"
+
+[[package]]
+name = "rust-web-server-1"
+version = "0.1.0"
