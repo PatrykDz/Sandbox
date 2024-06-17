@@ -267,7 +267,13 @@
                             <td width="5%"><?= $xml->niceFloat($invoiceContent['InvoiceContent']['discount_percent']) ?>%</td>
                             <!-- <td width="9%"><?= $xml->currency($invoiceContent['InvoiceContent']['discount_amount']) ?></td> -->
 
-                            <td width="9%"><?= $xml->currency($invoiceContent['InvoiceContent']['discount_amount']) ?></td>
+                            <td width="9%"><?= 
+                            (
+                                ($xml->currency($invoiceContent['InvoiceContent']['price']) * $xml->niceFloat($invoiceContent['InvoiceContent']['count'])) 
+                                - ($xml->currency($invoiceContent['InvoiceContent']['discount_amount']) / $invoiceContent['InvoiceContent']['count'])
+                            )
+                            
+                            ?></td>
 
                         <? endif ?>
 
