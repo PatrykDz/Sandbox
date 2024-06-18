@@ -265,8 +265,6 @@
 
                         <? if ($parameters['show_discount']): ?>
                             <td width="5%"><?= $xml->niceFloat($invoiceContent['InvoiceContent']['discount_percent']) ?>%</td>
-                            <!-- <td width="9%"><?= $xml->currency($invoiceContent['InvoiceContent']['discount_amount']) ?></td> -->
-
                             <td width="9%"><?=
                                 round(
                                     (
