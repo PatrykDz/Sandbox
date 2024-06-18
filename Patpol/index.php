@@ -25,8 +25,8 @@ Equation:
 <?= 
     round(
         (
-            (($xml->currency($invoiceContent['InvoiceContent']['price']) * $xml->niceFloat($invoiceContent['InvoiceContent']['count'])) 
-            - ($xml->currency($invoiceContent['InvoiceContent']['discount_amount']))) / $invoiceContent['InvoiceContent']['count']
+            (($xml->currency($invoiceContent['InvoiceContent']['price']) * $xml->niceFloat($invoiceContent['InvoiceContent']['count']))
+            - ($xml->currency($invoiceContent['InvoiceContent']['discount_amount']))) / $xml->niceFloat($invoiceContent['InvoiceContent']['count'])
         ), 2)
 ?>
 </html>
