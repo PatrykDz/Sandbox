@@ -1,0 +1,1 @@
+Inter font files will be served directly from the public folder
