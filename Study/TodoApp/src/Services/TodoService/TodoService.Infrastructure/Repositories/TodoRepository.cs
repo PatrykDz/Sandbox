@@ -1,14 +1,15 @@
 using Microsoft.EntityFrameworkCore;
+using Shared.BuildingBlocks.Specification;
 using TodoService.Domain.Entities;
-using TodoService.Domain.Enums;
 using TodoService.Domain.Repositories;
+using TodoService.Domain.StronglyTypedIds;
 using TodoService.Infrastructure.Data;
 
 namespace TodoService.Infrastructure.Repositories;
 
 public sealed class TodoRepository(TodoDbContext dbContext) : ITodoRepository
 {
-    public async Task<Todo?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<Todo?> GetByIdAsync(TodoId id, CancellationToken cancellationToken = default)
         => await dbContext.Todos
             .Include(t => t.Tags)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
@@ -16,29 +17,15 @@ public sealed class TodoRepository(TodoDbContext dbContext) : ITodoRepository
     public async Task<(IReadOnlyList<Todo> Items, int TotalCount)> GetPagedAsync(
         int page,
         int pageSize,
-        TodoStatus? status = null,
-        TodoPriority? priority = null,
-        Guid? assignedToUserId = null,
-        string? searchTerm = null,
+        Specification<Todo>? specification = null,
         CancellationToken cancellationToken = default)
     {
         var query = dbContext.Todos
             .Include(t => t.Tags)
             .AsNoTracking();
 
-        if (status.HasValue)
-            query = query.Where(t => t.Status == status.Value);
-
-        if (priority.HasValue)
-            query = query.Where(t => t.Priority == priority.Value);
-
-        if (assignedToUserId.HasValue)
-            query = query.Where(t => t.AssignedToUserId == assignedToUserId.Value);
-
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-            query = query.Where(t =>
-                EF.Functions.ILike(t.Title, $"%{searchTerm}%") ||
-                (t.Description != null && EF.Functions.ILike(t.Description, $"%{searchTerm}%")));
+        if (specification is not null)
+            query = query.Where(specification.ToExpression());
 
         var totalCount = await query.CountAsync(cancellationToken);
 
@@ -51,24 +38,28 @@ public sealed class TodoRepository(TodoDbContext dbContext) : ITodoRepository
         return (items.AsReadOnly(), totalCount);
     }
 
+    public async Task<IReadOnlyList<Todo>> GetAllBySpecificationAsync(
+        Specification<Todo> specification,
+        CancellationToken cancellationToken = default)
+    {
+        var items = await dbContext.Todos
+            .Include(t => t.Tags)
+            .AsNoTracking()
+            .Where(specification.ToExpression())
+            .ToListAsync(cancellationToken);
+
+        return items.AsReadOnly();
+    }
+
     public async Task AddAsync(Todo todo, CancellationToken cancellationToken = default)
-    {
-        await dbContext.Todos.AddAsync(todo, cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
+        => await dbContext.Todos.AddAsync(todo, cancellationToken);
 
-    public async Task UpdateAsync(Todo todo, CancellationToken cancellationToken = default)
-    {
-        dbContext.Todos.Update(todo);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
+    public void Update(Todo todo)
+        => dbContext.Todos.Update(todo);
 
-    public async Task DeleteAsync(Todo todo, CancellationToken cancellationToken = default)
-    {
-        dbContext.Todos.Remove(todo);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
+    public void Delete(Todo todo)
+        => dbContext.Todos.Remove(todo);
 
-    public async Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<bool> ExistsAsync(TodoId id, CancellationToken cancellationToken = default)
         => await dbContext.Todos.AnyAsync(t => t.Id == id, cancellationToken);
 }

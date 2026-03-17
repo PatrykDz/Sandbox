@@ -1,37 +1,40 @@
-using MassTransit;
-using Microsoft.Extensions.Logging;
 using Shared.BuildingBlocks.CQRS;
-using Shared.Contracts.Events;
+using Shared.BuildingBlocks.Result;
 using TodoService.Application.DTOs;
-using TodoService.Domain.Exceptions;
+using TodoService.Domain.Errors;
 using TodoService.Domain.Repositories;
+using TodoService.Domain.StronglyTypedIds;
+using TodoService.Domain.ValueObjects;
 
 namespace TodoService.Application.Commands.UpdateTodo;
 
 public sealed class UpdateTodoCommandHandler(
     ITodoRepository todoRepository,
-    IPublishEndpoint publishEndpoint,
-    ILogger<UpdateTodoCommandHandler> logger)
+    IUnitOfWork unitOfWork)
     : ICommandHandler<UpdateTodoCommand, TodoDto>
 {
-    public async Task<TodoDto> Handle(UpdateTodoCommand request, CancellationToken cancellationToken)
+    public async Task<Result<TodoDto>> Handle(UpdateTodoCommand request, CancellationToken cancellationToken)
     {
-        var todo = await todoRepository.GetByIdAsync(request.Id, cancellationToken)
-            ?? throw TodoDomainException.NotFound(request.Id);
+        var id = TodoId.From(request.Id);
+        var todo = await todoRepository.GetByIdAsync(id, cancellationToken);
+        if (todo is null) return TodoErrors.NotFound(request.Id);
 
-        todo.Update(request.Title, request.Description, request.Priority, request.DueDate);
+        var titleResult = TodoTitle.Create(request.Title);
+        if (titleResult.IsFailure) return titleResult.Error;
 
-        await todoRepository.UpdateAsync(todo, cancellationToken);
+        TodoDescription? description = null;
+        if (request.Description is not null)
+        {
+            var descResult = TodoDescription.Create(request.Description);
+            if (descResult.IsFailure) return descResult.Error;
+            description = descResult.Value;
+        }
 
-        await publishEndpoint.Publish(new TodoUpdatedEvent(
-            todo.Id,
-            todo.Title,
-            todo.Description,
-            todo.Priority.ToString(),
-            todo.DueDate,
-            todo.UpdatedAt!.Value), cancellationToken);
+        var updateResult = todo.Update(titleResult.Value, description, request.Priority, request.DueDate);
+        if (updateResult.IsFailure) return updateResult.Error;
 
-        logger.LogInformation("Todo {TodoId} updated", todo.Id);
+        todoRepository.Update(todo);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return todo.ToDto();
     }

@@ -1,41 +1,42 @@
-using MassTransit;
-using Microsoft.Extensions.Logging;
 using Shared.BuildingBlocks.CQRS;
-using Shared.Contracts.Events;
+using Shared.BuildingBlocks.Result;
 using TodoService.Application.DTOs;
 using TodoService.Domain.Entities;
+using TodoService.Domain.Enums;
 using TodoService.Domain.Repositories;
+using TodoService.Domain.StronglyTypedIds;
+using TodoService.Domain.ValueObjects;
 
 namespace TodoService.Application.Commands.CreateTodo;
 
 public sealed class CreateTodoCommandHandler(
     ITodoRepository todoRepository,
-    IPublishEndpoint publishEndpoint,
-    ILogger<CreateTodoCommandHandler> logger)
+    IUnitOfWork unitOfWork)
     : ICommandHandler<CreateTodoCommand, TodoDto>
 {
-    public async Task<TodoDto> Handle(CreateTodoCommand request, CancellationToken cancellationToken)
+    public async Task<Result<TodoDto>> Handle(CreateTodoCommand request, CancellationToken cancellationToken)
     {
-        var todo = Todo.Create(
-            request.Title,
-            request.Description,
-            request.Priority,
-            request.DueDate,
-            request.AssignedToUserId);
+        var titleResult = TodoTitle.Create(request.Title);
+        if (titleResult.IsFailure) return titleResult.Error;
 
+        TodoDescription? description = null;
+        if (request.Description is not null)
+        {
+            var descResult = TodoDescription.Create(request.Description);
+            if (descResult.IsFailure) return descResult.Error;
+            description = descResult.Value;
+        }
+
+        var userId = request.AssignedToUserId.HasValue
+            ? UserId.From(request.AssignedToUserId.Value)
+            : (UserId?)null;
+
+        var createResult = Todo.Create(titleResult.Value, description, request.Priority, request.DueDate, userId);
+        if (createResult.IsFailure) return createResult.Error;
+
+        var todo = createResult.Value;
         await todoRepository.AddAsync(todo, cancellationToken);
-
-        // MassTransit outbox ensures this message is published reliably
-        await publishEndpoint.Publish(new TodoCreatedEvent(
-            todo.Id,
-            todo.Title,
-            todo.Description,
-            todo.Priority.ToString(),
-            todo.AssignedToUserId,
-            todo.DueDate ?? DateTime.UtcNow.AddDays(7),
-            todo.CreatedAt), cancellationToken);
-
-        logger.LogInformation("Todo {TodoId} created with title '{Title}'", todo.Id, todo.Title);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return todo.ToDto();
     }

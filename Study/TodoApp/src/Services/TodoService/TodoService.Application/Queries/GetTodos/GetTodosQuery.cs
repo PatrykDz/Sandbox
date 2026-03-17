@@ -11,4 +11,5 @@ public sealed record GetTodosQuery(
     TodoStatus? Status = null,
     TodoPriority? Priority = null,
     Guid? AssignedToUserId = null,
-    string? SearchTerm = null) : IQuery<PagedResult<TodoDto>>;
+    string? SearchTerm = null,
+    bool OverdueOnly = false) : IQuery<PagedResult<TodoDto>>;

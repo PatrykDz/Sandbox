@@ -1,35 +1,28 @@
-using MassTransit;
-using Microsoft.Extensions.Logging;
 using Shared.BuildingBlocks.CQRS;
-using Shared.Contracts.Events;
+using Shared.BuildingBlocks.Result;
 using TodoService.Application.DTOs;
-using TodoService.Domain.Exceptions;
+using TodoService.Domain.Errors;
 using TodoService.Domain.Repositories;
+using TodoService.Domain.StronglyTypedIds;
 
 namespace TodoService.Application.Commands.CompleteTodo;
 
 public sealed class CompleteTodoCommandHandler(
     ITodoRepository todoRepository,
-    IPublishEndpoint publishEndpoint,
-    ILogger<CompleteTodoCommandHandler> logger)
+    IUnitOfWork unitOfWork)
     : ICommandHandler<CompleteTodoCommand, TodoDto>
 {
-    public async Task<TodoDto> Handle(CompleteTodoCommand request, CancellationToken cancellationToken)
+    public async Task<Result<TodoDto>> Handle(CompleteTodoCommand request, CancellationToken cancellationToken)
     {
-        var todo = await todoRepository.GetByIdAsync(request.Id, cancellationToken)
-            ?? throw TodoDomainException.NotFound(request.Id);
+        var id = TodoId.From(request.Id);
+        var todo = await todoRepository.GetByIdAsync(id, cancellationToken);
+        if (todo is null) return TodoErrors.NotFound(request.Id);
 
-        todo.Complete();
+        var result = todo.Complete();
+        if (result.IsFailure) return result.Error;
 
-        await todoRepository.UpdateAsync(todo, cancellationToken);
-
-        await publishEndpoint.Publish(new TodoCompletedEvent(
-            todo.Id,
-            todo.Title,
-            todo.AssignedToUserId,
-            todo.CompletedAt!.Value), cancellationToken);
-
-        logger.LogInformation("Todo {TodoId} completed", todo.Id);
+        todoRepository.Update(todo);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return todo.ToDto();
     }

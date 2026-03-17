@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using TodoService.Domain.Entities;
+using TodoService.Domain.StronglyTypedIds;
 
 namespace TodoService.Infrastructure.Data.Configurations;
 
@@ -18,16 +19,13 @@ public sealed class TodoTagConfiguration : IEntityTypeConfiguration<TodoTag>
 
         builder.Property(t => t.TodoId)
             .HasColumnName("todo_id")
-            .IsRequired();
+            .IsRequired()
+            .HasConversion(
+                id => id.Value,
+                value => TodoId.From(value));
 
-        builder.Property(t => t.Name)
-            .HasColumnName("name")
-            .HasMaxLength(50)
-            .IsRequired();
-
-        builder.Property(t => t.CreatedAt)
-            .HasColumnName("created_at")
-            .IsRequired();
+        builder.Property(t => t.Name).HasColumnName("name").HasMaxLength(50).IsRequired();
+        builder.Property(t => t.CreatedAt).HasColumnName("created_at").IsRequired();
 
         builder.HasIndex(t => new { t.TodoId, t.Name })
             .IsUnique()

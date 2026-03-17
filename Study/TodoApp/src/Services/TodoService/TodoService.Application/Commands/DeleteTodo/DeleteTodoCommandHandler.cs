@@ -1,29 +1,30 @@
-using MassTransit;
-using Microsoft.Extensions.Logging;
 using Shared.BuildingBlocks.CQRS;
-using Shared.Contracts.Events;
-using TodoService.Domain.Exceptions;
+using Shared.BuildingBlocks.Result;
+using TodoService.Domain.Errors;
 using TodoService.Domain.Repositories;
+using TodoService.Domain.StronglyTypedIds;
 
 namespace TodoService.Application.Commands.DeleteTodo;
 
 public sealed class DeleteTodoCommandHandler(
     ITodoRepository todoRepository,
-    IPublishEndpoint publishEndpoint,
-    ILogger<DeleteTodoCommandHandler> logger)
+    IUnitOfWork unitOfWork)
     : ICommandHandler<DeleteTodoCommand>
 {
-    public async Task Handle(DeleteTodoCommand request, CancellationToken cancellationToken)
+    public async Task<Result> Handle(DeleteTodoCommand request, CancellationToken cancellationToken)
     {
-        var todo = await todoRepository.GetByIdAsync(request.Id, cancellationToken)
-            ?? throw TodoDomainException.NotFound(request.Id);
+        var id = TodoId.From(request.Id);
+        var todo = await todoRepository.GetByIdAsync(id, cancellationToken);
+        if (todo is null) return TodoErrors.NotFound(request.Id);
 
-        await todoRepository.DeleteAsync(todo, cancellationToken);
+        todoRepository.Delete(todo);
 
-        await publishEndpoint.Publish(new TodoDeletedEvent(
-            todo.Id,
-            DateTime.UtcNow), cancellationToken);
+        // Raise the deleted event before saving so the interceptor can dispatch it
+        todo.RaiseDomainEventPublic(new Domain.Events.TodoDeletedDomainEvent(
+            Guid.NewGuid(), DateTime.UtcNow, id));
 
-        logger.LogInformation("Todo {TodoId} deleted", todo.Id);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Success();
     }
 }

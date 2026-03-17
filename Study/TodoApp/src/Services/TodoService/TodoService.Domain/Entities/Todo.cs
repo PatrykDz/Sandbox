@@ -1,17 +1,24 @@
 using Shared.BuildingBlocks.Domain;
+using Shared.BuildingBlocks.Result;
 using TodoService.Domain.Enums;
+using TodoService.Domain.Errors;
 using TodoService.Domain.Events;
-using TodoService.Domain.Exceptions;
+using TodoService.Domain.StronglyTypedIds;
+using TodoService.Domain.ValueObjects;
 
 namespace TodoService.Domain.Entities;
 
-public sealed class Todo : AggregateRoot<Guid>
+/// <summary>
+/// The Todo aggregate root. All invariants are enforced here.
+/// State changes produce domain events which are dispatched after persistence.
+/// </summary>
+public sealed class Todo : AggregateRoot<TodoId>
 {
-    public string Title { get; private set; } = default!;
-    public string? Description { get; private set; }
+    public TodoTitle Title { get; private set; } = default!;
+    public TodoDescription? Description { get; private set; }
     public TodoStatus Status { get; private set; }
     public TodoPriority Priority { get; private set; }
-    public Guid? AssignedToUserId { get; private set; }
+    public UserId? AssignedToUserId { get; private set; }
     public DateTime? DueDate { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -20,20 +27,22 @@ public sealed class Todo : AggregateRoot<Guid>
     private readonly List<TodoTag> _tags = [];
     public IReadOnlyCollection<TodoTag> Tags => _tags.AsReadOnly();
 
+    // For EF Core
     private Todo() { }
 
-    public static Todo Create(
-        string title,
-        string? description,
+    public static Result<Todo> Create(
+        TodoTitle title,
+        TodoDescription? description,
         TodoPriority priority,
         DateTime? dueDate,
-        Guid? assignedToUserId)
+        UserId? assignedToUserId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        if (dueDate.HasValue && dueDate.Value <= DateTime.UtcNow)
+            return Error.Validation("Todo.DueDatePast", "Due date must be in the future.");
 
         var todo = new Todo
         {
-            Id = Guid.NewGuid(),
+            Id = TodoId.New(),
             Title = title,
             Description = description,
             Status = TodoStatus.Pending,
@@ -44,28 +53,21 @@ public sealed class Todo : AggregateRoot<Guid>
         };
 
         todo.RaiseDomainEvent(new TodoCreatedDomainEvent(
-            Guid.NewGuid(),
-            DateTime.UtcNow,
-            todo.Id,
-            todo.Title,
-            todo.Description,
-            todo.Priority,
-            todo.AssignedToUserId,
-            todo.DueDate));
+            Guid.NewGuid(), DateTime.UtcNow,
+            todo.Id, todo.Title.Value, todo.Description?.Value,
+            todo.Priority, todo.AssignedToUserId?.Value, todo.DueDate));
 
         return todo;
     }
 
-    public void Update(
-        string title,
-        string? description,
+    public Result Update(
+        TodoTitle title,
+        TodoDescription? description,
         TodoPriority priority,
         DateTime? dueDate)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(title);
-
         if (Status is TodoStatus.Completed or TodoStatus.Cancelled)
-            throw TodoDomainException.InvalidTransition(Status.ToString(), "Update");
+            return TodoErrors.CannotUpdateTerminated;
 
         Title = title;
         Description = description;
@@ -74,84 +76,101 @@ public sealed class Todo : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
 
         RaiseDomainEvent(new TodoUpdatedDomainEvent(
-            Guid.NewGuid(),
-            DateTime.UtcNow,
-            Id,
-            Title,
-            Description,
-            Priority,
-            DueDate));
+            Guid.NewGuid(), DateTime.UtcNow,
+            Id, Title.Value, Description?.Value, Priority, DueDate));
+
+        return Result.Success();
     }
 
-    public void StartProgress()
+    public Result StartProgress()
     {
         if (Status != TodoStatus.Pending)
-            throw TodoDomainException.InvalidTransition(Status.ToString(), TodoStatus.InProgress.ToString());
+            return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.InProgress.ToString());
 
         Status = TodoStatus.InProgress;
         UpdatedAt = DateTime.UtcNow;
+
+        RaiseDomainEvent(new TodoStatusChangedDomainEvent(
+            Guid.NewGuid(), DateTime.UtcNow, Id, TodoStatus.Pending, TodoStatus.InProgress));
+
+        return Result.Success();
     }
 
-    public void Complete()
+    public Result Complete()
     {
         if (Status == TodoStatus.Completed)
-            throw TodoDomainException.AlreadyCompleted(Id);
-
+            return TodoErrors.AlreadyCompleted;
         if (Status == TodoStatus.Cancelled)
-            throw TodoDomainException.InvalidTransition(Status.ToString(), TodoStatus.Completed.ToString());
+            return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.Completed.ToString());
 
         Status = TodoStatus.Completed;
         CompletedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
 
         RaiseDomainEvent(new TodoCompletedDomainEvent(
-            Guid.NewGuid(),
-            DateTime.UtcNow,
-            Id,
-            Title,
-            AssignedToUserId));
+            Guid.NewGuid(), DateTime.UtcNow,
+            Id, Title.Value, AssignedToUserId?.Value));
+
+        return Result.Success();
     }
 
-    public void Cancel(string reason)
+    public Result Cancel(string reason)
     {
         if (Status == TodoStatus.Cancelled)
-            throw TodoDomainException.AlreadyCancelled(Id);
-
+            return TodoErrors.AlreadyCancelled;
         if (Status == TodoStatus.Completed)
-            throw TodoDomainException.InvalidTransition(Status.ToString(), TodoStatus.Cancelled.ToString());
+            return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.Cancelled.ToString());
 
         Status = TodoStatus.Cancelled;
         UpdatedAt = DateTime.UtcNow;
 
         RaiseDomainEvent(new TodoCancelledDomainEvent(
-            Guid.NewGuid(),
-            DateTime.UtcNow,
-            Id,
-            reason));
+            Guid.NewGuid(), DateTime.UtcNow, Id, reason));
+
+        return Result.Success();
     }
 
-    public void AssignTo(Guid userId)
+    public Result AssignTo(UserId userId)
     {
+        if (AssignedToUserId == userId)
+            return TodoErrors.AssignedToSameUser;
+
+        var previousAssignee = AssignedToUserId;
         AssignedToUserId = userId;
         UpdatedAt = DateTime.UtcNow;
+
+        RaiseDomainEvent(new TodoAssignedDomainEvent(
+            Guid.NewGuid(), DateTime.UtcNow,
+            Id, Title.Value, userId, previousAssignee));
+
+        return Result.Success();
     }
 
-    public void AddTag(string name)
+    public Result AddTag(string name)
     {
+        if (string.IsNullOrWhiteSpace(name))
+            return Error.Validation("Todo.TagNameEmpty", "Tag name cannot be empty.");
+
+        name = name.ToLowerInvariant().Trim();
+
         if (_tags.Any(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-            return;
+            return Result.Success(); // Idempotent — not an error
 
         _tags.Add(TodoTag.Create(Id, name));
         UpdatedAt = DateTime.UtcNow;
+        return Result.Success();
     }
 
-    public void RemoveTag(string name)
+    public Result RemoveTag(string name)
     {
-        var tag = _tags.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (tag is not null)
-        {
-            _tags.Remove(tag);
-            UpdatedAt = DateTime.UtcNow;
-        }
+        var tag = _tags.FirstOrDefault(
+            t => t.Name.Equals(name.ToLowerInvariant().Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (tag is null)
+            return Error.NotFound("Todo.TagNotFound", $"Tag '{name}' not found on this todo.");
+
+        _tags.Remove(tag);
+        UpdatedAt = DateTime.UtcNow;
+        return Result.Success();
     }
 }

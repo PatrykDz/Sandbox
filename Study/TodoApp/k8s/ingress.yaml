@@ -1,37 +1,19 @@
-# Requires: nginx ingress controller
-# Install: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
-#
-# For TLS, install cert-manager:
-# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: todoapp-ingress
   namespace: todoapp
-  labels:
-    app.kubernetes.io/name: todoapp-ingress
-    app.kubernetes.io/part-of: todoapp
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    # Rate limiting
     nginx.ingress.kubernetes.io/limit-rps: "100"
     nginx.ingress.kubernetes.io/limit-connections: "20"
-    # TLS redirect
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    # Cert-manager (uncomment if using cert-manager)
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
-  # tls:
-  #   - hosts:
-  #       - api.todoapp.example.com
-  #     secretName: todoapp-tls
   rules:
-    - host: api.todoapp.example.com  # Change to your domain
+    - host: api.todoapp.example.com
       http:
         paths:
           - path: /api/v1/todos
@@ -41,10 +23,17 @@ spec:
                 name: todo-service
                 port:
                   name: http
-          - path: /health
+          - path: /api/v1/users
             pathType: Prefix
             backend:
               service:
-                name: todo-service
+                name: user-service
+                port:
+                  name: http
+          - path: /api/v1/audit
+            pathType: Prefix
+            backend:
+              service:
+                name: audit-service
                 port:
                   name: http

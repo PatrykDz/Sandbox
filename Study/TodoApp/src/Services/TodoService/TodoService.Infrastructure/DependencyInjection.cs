@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TodoService.Domain.Repositories;
 using TodoService.Infrastructure.Data;
+using TodoService.Infrastructure.Data.Interceptors;
 using TodoService.Infrastructure.Repositories;
 
 namespace TodoService.Infrastructure;
@@ -14,7 +15,11 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddDbContext<TodoDbContext>(options =>
+        // Domain event dispatcher interceptor — scoped so it can resolve IMediator
+        services.AddScoped<DomainEventDispatcherInterceptor>();
+
+        services.AddDbContext<TodoDbContext>((sp, options) =>
+        {
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection"),
                 npgsql =>
@@ -22,19 +27,24 @@ public static class DependencyInjection
                     npgsql.MigrationsAssembly(typeof(TodoDbContext).Assembly.FullName);
                     npgsql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
                     npgsql.CommandTimeout(30);
-                }));
+                });
+        });
 
+        services.AddScoped<IUnitOfWork, TodoUnitOfWork>();
         services.AddScoped<ITodoRepository, TodoRepository>();
 
         services.AddMassTransit(cfg =>
         {
-            // Outbox pattern: messages are stored in the DB within the same transaction
-            // and delivered to RabbitMQ by the MassTransit outbox dispatcher
+            // Outbox: messages are stored in the same PostgreSQL DB
+            // as domain data. Delivered to RabbitMQ by the outbox dispatcher.
             cfg.AddEntityFrameworkOutbox<TodoDbContext>(outbox =>
             {
                 outbox.UsePostgres();
-                outbox.UseBusOutbox();
-                outbox.QueryDelay = TimeSpan.FromSeconds(1);
+                outbox.UseBusOutbox(busOutbox =>
+                {
+                    busOutbox.MessageDeliveryLimit = 100;
+                });
+                outbox.QueryDelay = TimeSpan.FromMilliseconds(500);
             });
 
             cfg.UsingRabbitMq((ctx, rmq) =>
@@ -46,9 +56,7 @@ public static class DependencyInjection
                 });
 
                 rmq.UseMessageRetry(r =>
-                {
-                    r.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
-                });
+                    r.Exponential(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(3)));
 
                 rmq.ConfigureEndpoints(ctx);
             });

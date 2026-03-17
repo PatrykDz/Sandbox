@@ -1,15 +1,8 @@
-# Horizontal Pod Autoscalers for automatic scaling
-# Requirements: metrics-server must be installed in the cluster
-# Install: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: todo-service-hpa
   namespace: todoapp
-  labels:
-    app.kubernetes.io/name: todo-service
-    app.kubernetes.io/component: api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -38,7 +31,41 @@ spec:
           value: 2
           periodSeconds: 60
     scaleDown:
-      stabilizationWindowSeconds: 300  # 5 min cool-down before scaling down
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-service-hpa
+  namespace: todoapp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
       policies:
         - type: Pods
           value: 1
@@ -50,9 +77,6 @@ kind: HorizontalPodAutoscaler
 metadata:
   name: notification-service-hpa
   namespace: todoapp
-  labels:
-    app.kubernetes.io/name: notification-service
-    app.kubernetes.io/component: worker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -67,22 +91,34 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60
-      policies:
-        - type: Pods
-          value: 2
-          periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: 300
-      policies:
-        - type: Pods
-          value: 1
-          periodSeconds: 120
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: audit-service-hpa
+  namespace: todoapp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: audit-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
