@@ -13,6 +13,7 @@ using TodoService.Application.Commands.StartProgress;
 using TodoService.Application.Commands.UpdateTodo;
 using TodoService.Application.DTOs;
 using TodoService.Application.Queries.GetTodo;
+using TodoService.Application.Queries.GetTodoHistory;
 using TodoService.Application.Queries.GetTodos;
 using TodoService.Domain.Enums;
 
@@ -44,6 +45,18 @@ public sealed class TodosController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> GetTodo(Guid id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetTodoQuery(id), cancellationToken);
+        return result.ToActionResult(this);
+    }
+
+    /// <summary>Returns the paginated state-change history for a specific todo.</summary>
+    [HttpGet("{id:guid}/history")]
+    public async Task<IActionResult> GetTodoHistory(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetTodoHistoryQuery(id, page, pageSize), cancellationToken);
         return result.ToActionResult(this);
     }
 

@@ -67,6 +67,11 @@ public sealed class TodoConfiguration : IEntityTypeConfiguration<Todo>
             .HasForeignKey(tag => tag.TodoId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasMany(t => t.HistoryEntries)
+            .WithOne()
+            .HasForeignKey(h => h.TodoId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.HasIndex(t => t.Status).HasDatabaseName("ix_todos_status");
         builder.HasIndex(t => t.Priority).HasDatabaseName("ix_todos_priority");
         builder.HasIndex(t => t.AssignedToUserId).HasDatabaseName("ix_todos_assigned_to_user_id");

@@ -1,0 +1,46 @@
+# Prometheus configuration for TodoApp observability stack
+# Scrapes: OTel Collector (service metrics), PostgreSQL Exporter, RabbitMQ
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    cluster:     docker-compose
+    environment: local
+
+rule_files: []
+
+scrape_configs:
+  # ── OpenTelemetry Collector ────────────────────────────────────────────────
+  # Service metrics (HTTP request rates, latency, EF Core, MassTransit, runtime)
+  # forwarded from all .NET services via OTLP → Collector → Prometheus
+  - job_name: otel-collector-services
+    static_configs:
+      - targets: [otel-collector:8889]
+        labels:
+          scrape_source: otel_collector
+
+  # OTel Collector's own internal metrics
+  - job_name: otel-collector-internal
+    static_configs:
+      - targets: [otel-collector:8888]
+        labels:
+          scrape_source: otel_collector_internal
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  - job_name: postgres
+    static_configs:
+      - targets: [postgres-exporter:9187]
+        labels:
+          service: postgres
+          instance: todoapp-postgres
+
+  # ── RabbitMQ ───────────────────────────────────────────────────────────────
+  # rabbitmq_prometheus plugin exposes metrics on port 15692
+  - job_name: rabbitmq
+    static_configs:
+      - targets: [rabbitmq:15692]
+        labels:
+          service: rabbitmq
+          instance: todoapp-rabbitmq

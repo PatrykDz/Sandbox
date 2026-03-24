@@ -48,6 +48,8 @@ public static class DependencyInjection
             });
         });
 
+        services.AddObservability(configuration);
+
         return services;
     }
 

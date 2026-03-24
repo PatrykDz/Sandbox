@@ -13,6 +13,7 @@ public sealed class TodoDbContext(
 {
     public DbSet<Todo> Todos => Set<Todo>();
     public DbSet<TodoTag> TodoTags => Set<TodoTag>();
+    public DbSet<TodoHistoryEntry> TodoHistoryEntries => Set<TodoHistoryEntry>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {

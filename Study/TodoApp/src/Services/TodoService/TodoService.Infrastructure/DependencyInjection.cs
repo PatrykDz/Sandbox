@@ -32,6 +32,7 @@ public static class DependencyInjection
 
         services.AddScoped<IUnitOfWork, TodoUnitOfWork>();
         services.AddScoped<ITodoRepository, TodoRepository>();
+        services.AddScoped<ITodoHistoryRepository, TodoHistoryRepository>();
 
         services.AddMassTransit(cfg =>
         {
@@ -61,6 +62,8 @@ public static class DependencyInjection
                 rmq.ConfigureEndpoints(ctx);
             });
         });
+
+        services.AddObservability(configuration);
 
         return services;
     }

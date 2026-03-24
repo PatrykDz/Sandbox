@@ -10,7 +10,8 @@ namespace TodoService.Domain.Entities;
 
 /// <summary>
 /// The Todo aggregate root. All invariants are enforced here.
-/// State changes produce domain events which are dispatched after persistence.
+/// State changes produce domain events (dispatched after persistence)
+/// and history entries (saved atomically in the same transaction).
 /// </summary>
 public sealed class Todo : AggregateRoot<TodoId>
 {
@@ -26,6 +27,14 @@ public sealed class Todo : AggregateRoot<TodoId>
 
     private readonly List<TodoTag> _tags = [];
     public IReadOnlyCollection<TodoTag> Tags => _tags.AsReadOnly();
+
+    private readonly List<TodoHistoryEntry> _historyEntries = [];
+
+    /// <summary>
+    /// Ordered history of every state change. Persisted atomically with the aggregate.
+    /// Append-only — never modified after creation.
+    /// </summary>
+    public IReadOnlyCollection<TodoHistoryEntry> HistoryEntries => _historyEntries.AsReadOnly();
 
     // For EF Core
     private Todo() { }
@@ -52,6 +61,14 @@ public sealed class Todo : AggregateRoot<TodoId>
             CreatedAt = DateTime.UtcNow
         };
 
+        todo._historyEntries.Add(TodoHistoryEntry.Record(
+            todo.Id,
+            "Created",
+            previousState: null,
+            currentState: $"Title={title.Value}; Status=Pending; Priority={priority}" +
+                          (dueDate.HasValue ? $"; DueDate={dueDate:O}" : "") +
+                          (assignedToUserId.HasValue ? $"; AssignedTo={assignedToUserId.Value.Value}" : "")));
+
         todo.RaiseDomainEvent(new TodoCreatedDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow,
             todo.Id, todo.Title.Value, todo.Description?.Value,
@@ -69,11 +86,16 @@ public sealed class Todo : AggregateRoot<TodoId>
         if (Status is TodoStatus.Completed or TodoStatus.Cancelled)
             return TodoErrors.CannotUpdateTerminated;
 
+        var previous = $"Title={Title.Value}; Priority={Priority}; DueDate={DueDate:O}; Description={Description?.Value}";
+        var current  = $"Title={title.Value}; Priority={priority}; DueDate={dueDate:O}; Description={description?.Value}";
+
         Title = title;
         Description = description;
         Priority = priority;
         DueDate = dueDate;
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "Updated", previous, current));
 
         RaiseDomainEvent(new TodoUpdatedDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow,
@@ -87,8 +109,11 @@ public sealed class Todo : AggregateRoot<TodoId>
         if (Status != TodoStatus.Pending)
             return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.InProgress.ToString());
 
+        var previous = $"Status={Status}";
         Status = TodoStatus.InProgress;
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "StatusChanged", previous, $"Status={Status}"));
 
         RaiseDomainEvent(new TodoStatusChangedDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow, Id, TodoStatus.Pending, TodoStatus.InProgress));
@@ -103,9 +128,12 @@ public sealed class Todo : AggregateRoot<TodoId>
         if (Status == TodoStatus.Cancelled)
             return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.Completed.ToString());
 
+        var previous = $"Status={Status}";
         Status = TodoStatus.Completed;
         CompletedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "Completed", previous, $"Status=Completed; CompletedAt={CompletedAt:O}"));
 
         RaiseDomainEvent(new TodoCompletedDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow,
@@ -121,8 +149,11 @@ public sealed class Todo : AggregateRoot<TodoId>
         if (Status == TodoStatus.Completed)
             return TodoErrors.InvalidTransition(Status.ToString(), TodoStatus.Cancelled.ToString());
 
+        var previous = $"Status={Status}";
         Status = TodoStatus.Cancelled;
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "Cancelled", previous, $"Status=Cancelled", reason: reason));
 
         RaiseDomainEvent(new TodoCancelledDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow, Id, reason));
@@ -136,8 +167,11 @@ public sealed class Todo : AggregateRoot<TodoId>
             return TodoErrors.AssignedToSameUser;
 
         var previousAssignee = AssignedToUserId;
+        var previous = previousAssignee.HasValue ? $"AssignedTo={previousAssignee.Value.Value}" : "AssignedTo=<none>";
         AssignedToUserId = userId;
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "Assigned", previous, $"AssignedTo={userId.Value}"));
 
         RaiseDomainEvent(new TodoAssignedDomainEvent(
             Guid.NewGuid(), DateTime.UtcNow,
@@ -158,6 +192,9 @@ public sealed class Todo : AggregateRoot<TodoId>
 
         _tags.Add(TodoTag.Create(Id, name));
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "TagAdded", previousState: null, currentState: $"Tag={name}"));
+
         return Result.Success();
     }
 
@@ -171,6 +208,9 @@ public sealed class Todo : AggregateRoot<TodoId>
 
         _tags.Remove(tag);
         UpdatedAt = DateTime.UtcNow;
+
+        _historyEntries.Add(TodoHistoryEntry.Record(Id, "TagRemoved", previousState: $"Tag={name}", currentState: "Tag removed"));
+
         return Result.Success();
     }
 }
