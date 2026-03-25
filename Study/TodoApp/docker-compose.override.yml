@@ -1,0 +1,37 @@
+# Development overrides - hot reload, debug ports, relaxed healthchecks
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  todo-service:
+    build:
+      args:
+        BUILD_CONFIGURATION: Debug
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=todoapp;
+        Username=todoapp;Password=todoapp_password;
+        Pooling=true;MinPoolSize=2;MaxPoolSize=20;
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+    ports:
+      - "5000:8080"
+
+  notification-service:
+    build:
+      args:
+        BUILD_CONFIGURATION: Debug
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest

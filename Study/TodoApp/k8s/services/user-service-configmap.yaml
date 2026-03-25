@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: todoapp
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: todoapp
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Username: "guest"

@@ -1,0 +1,323 @@
+services:
+  # ╔══════════════════════════════════════════════════════════════╗
+  # ║  INFRASTRUCTURE                                              ║
+  # ╚══════════════════════════════════════════════════════════════╝
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: todoapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-todoapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-todoapp_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-todoapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - todoapp-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: todoapp-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: "/"
+      RABBITMQ_PROMETHEUS_RETURN_PER_OBJECT_METRICS: "true"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - todoapp-network
+
+  # ╔══════════════════════════════════════════════════════════════╗
+  # ║  APPLICATION SERVICES                                        ║
+  # ╚══════════════════════════════════════════════════════════════╝
+
+  todo-service:
+    build:
+      context: .
+      dockerfile: src/Services/TodoService/TodoService.API/Dockerfile
+    container_name: todoapp-todo-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=todoapp;Username=${POSTGRES_USER:-todoapp};Password=${POSTGRES_PASSWORD:-todoapp_password};Pooling=true;MinPoolSize=5;MaxPoolSize=100;"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      Otlp__Endpoint: http://otel-collector:4317
+    ports:
+      - "${TODO_SERVICE_PORT:-5000}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - todoapp-network
+
+  user-service:
+    build:
+      context: .
+      dockerfile: src/Services/UserService/UserService.API/Dockerfile
+    container_name: todoapp-user-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=userservice;Username=${POSTGRES_USER:-todoapp};Password=${POSTGRES_PASSWORD:-todoapp_password};Pooling=true;MinPoolSize=5;MaxPoolSize=100;"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      Otlp__Endpoint: http://otel-collector:4317
+    ports:
+      - "${USER_SERVICE_PORT:-5001}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - todoapp-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/Services/NotificationService/NotificationService.Worker/Dockerfile
+    container_name: todoapp-notification-service
+    restart: unless-stopped
+    environment:
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=notificationservice;Username=${POSTGRES_USER:-todoapp};Password=${POSTGRES_PASSWORD:-todoapp_password};Pooling=true;MinPoolSize=2;MaxPoolSize=50;"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      Otlp__Endpoint: http://otel-collector:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - todoapp-network
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: src/Services/AuditService/AuditService.API/Dockerfile
+    container_name: todoapp-audit-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=auditservice;Username=${POSTGRES_USER:-todoapp};Password=${POSTGRES_PASSWORD:-todoapp_password};Pooling=true;MinPoolSize=2;MaxPoolSize=50;"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      Otlp__Endpoint: http://otel-collector:4317
+    ports:
+      - "${AUDIT_SERVICE_PORT:-5002}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - todoapp-network
+
+  # ╔══════════════════════════════════════════════════════════════╗
+  # ║  OBSERVABILITY STACK                                         ║
+  # ╚══════════════════════════════════════════════════════════════╝
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    container_name: todoapp-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/otelcol.yml"]
+    volumes:
+      - ./infrastructure/otel-collector/otelcol.yml:/etc/otelcol/otelcol.yml:ro
+    ports:
+      - "4317:4317"    # OTLP gRPC — services push telemetry here
+      - "4318:4318"    # OTLP HTTP
+      - "8889:8889"    # Prometheus scrape endpoint (collector-side metrics)
+    depends_on:
+      - tempo
+      - loki
+    networks:
+      - todoapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: todoapp-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-remote-write-receiver"
+      - "--web.enable-lifecycle"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - otel-collector
+    networks:
+      - todoapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  loki:
+    image: grafana/loki:3.3.1
+    container_name: todoapp-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./infrastructure/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - todoapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: todoapp-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./infrastructure/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "${TEMPO_PORT:-3200}:3200"    # Tempo HTTP query API
+    networks:
+      - todoapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: todoapp-grafana
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor tempoSearch"
+      GF_EXPLORE_ENABLED: "true"
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - todoapp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: todoapp-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-todoapp}:${POSTGRES_PASSWORD:-todoapp_password}@postgres:5432/postgres?sslmode=disable"
+      PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
+      PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - todoapp-network
+
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  loki_data:
+    driver: local
+  tempo_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  todoapp-network:
+    driver: bridge

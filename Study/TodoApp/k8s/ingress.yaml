@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todoapp-ingress
+  namespace: todoapp
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.todoapp.example.com
+      http:
+        paths:
+          - path: /api/v1/todos
+            pathType: Prefix
+            backend:
+              service:
+                name: todo-service
+                port:
+                  name: http
+          - path: /api/v1/users
+            pathType: Prefix
+            backend:
+              service:
+                name: user-service
+                port:
+                  name: http
+          - path: /api/v1/audit
+            pathType: Prefix
+            backend:
+              service:
+                name: audit-service
+                port:
+                  name: http
