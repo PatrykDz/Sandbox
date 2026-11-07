@@ -1,0 +1,24 @@
+name: Snowfall (macOS)
+
+on:
+  push:
+    paths:
+      - "MacOS/Snowfall/**"
+      - ".github/workflows/snowfall-macos.yml"
+  pull_request:
+    paths:
+      - "MacOS/Snowfall/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app bundle
+        working-directory: MacOS/Snowfall
+        run: ./build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowfall.app
+          path: MacOS/Snowfall/build/Snowfall.app
