@@ -4,6 +4,8 @@
 #        UNIVERSAL=1 ./build-app.sh  # arm64 + x86_64 (needs full Xcode)
 set -euo pipefail
 cd "$(dirname "$0")"
+VERSION="${VERSION:-1.1}"
+BUILD="${BUILD:-2}"
 
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   swift build -c release --arch arm64 --arch x86_64
@@ -40,8 +42,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Snowfall</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Snowfall</string>
-  <key>CFBundleShortVersionString</key><string>1.1</string>
-  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${BUILD}</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>

@@ -2,9 +2,12 @@ name: Snowfall (macOS)
 
 on:
   push:
+    branches: ["**"]
     paths:
       - "MacOS/Snowfall/**"
       - ".github/workflows/snowfall-macos.yml"
+    # Pushing a tag like snowfall-v1.2 builds and publishes a GitHub Release.
+    tags: ["snowfall-v*"]
   pull_request:
     paths:
       - "MacOS/Snowfall/**"
@@ -13,22 +16,45 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/snowfall-v') }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Work out version
+        run: |
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#snowfall-v}" >> "$GITHUB_ENV"
+          fi
+          echo "BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
       - name: Build universal app bundle
         working-directory: MacOS/Snowfall
         run: UNIVERSAL=1 ./build-app.sh
+
       - name: Check architectures
         working-directory: MacOS/Snowfall
         run: lipo -info build/Snowfall.app/Contents/MacOS/Snowfall
+
       - name: Package DMG installer
         working-directory: MacOS/Snowfall
         run: ./make-dmg.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: Snowfall-dmg
           path: MacOS/Snowfall/build/Snowfall.dmg
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Snowfall-icon
-          path: MacOS/Snowfall/build/Snowfall.app/Contents/Resources/Snowfall.icns
+
+      - name: Publish GitHub Release
+        if: env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: MacOS/Snowfall
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Snowfall.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Snowfall $VERSION" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag
