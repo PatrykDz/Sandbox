@@ -4,7 +4,7 @@
 #        UNIVERSAL=1 ./build-app.sh  # arm64 + x86_64 (needs full Xcode)
 set -euo pipefail
 cd "$(dirname "$0")"
-VERSION="${VERSION:-1.1}"
+VERSION="${VERSION:-$(cat VERSION)}"
 BUILD="${BUILD:-2}"
 
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then

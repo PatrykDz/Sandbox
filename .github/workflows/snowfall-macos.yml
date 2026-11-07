@@ -1,13 +1,13 @@
 name: Snowfall (macOS)
 
+# Every push builds the universal app and DMG. On a push (not a PR), if there is no
+# GitHub Release yet for the version in MacOS/Snowfall/VERSION, one is published
+# with tag snowfall-v<version>. To release a new version, bump that file.
 on:
   push:
-    branches: ["**"]
     paths:
       - "MacOS/Snowfall/**"
       - ".github/workflows/snowfall-macos.yml"
-    # Pushing a tag like snowfall-v1.2 builds and publishes a GitHub Release.
-    tags: ["snowfall-v*"]
   pull_request:
     paths:
       - "MacOS/Snowfall/**"
@@ -18,16 +18,12 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: write
-    env:
-      IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/snowfall-v') }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Work out version
+      - name: Read version
         run: |
-          if [[ "$IS_RELEASE" == "true" ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#snowfall-v}" >> "$GITHUB_ENV"
-          fi
+          echo "VERSION=$(tr -d '[:space:]' < MacOS/Snowfall/VERSION)" >> "$GITHUB_ENV"
           echo "BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Build universal app bundle
@@ -47,14 +43,19 @@ jobs:
           name: Snowfall-dmg
           path: MacOS/Snowfall/build/Snowfall.dmg
 
-      - name: Publish GitHub Release
-        if: env.IS_RELEASE == 'true'
+      - name: Publish GitHub Release (if this version is new)
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: MacOS/Snowfall
         run: |
-          gh release create "$GITHUB_REF_NAME" build/Snowfall.dmg \
+          TAG="snowfall-v$VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            exit 0
+          fi
+          gh release create "$TAG" build/Snowfall.dmg \
             --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
             --title "Snowfall $VERSION" \
-            --notes-file RELEASE_NOTES.md \
-            --verify-tag
+            --notes-file RELEASE_NOTES.md
