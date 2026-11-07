@@ -18,6 +18,17 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Snowfall" "$APP/Contents/MacOS/Snowfall"
 
+# App icon, rendered from Tools/make-icon.swift.
+ICONSET="$(mktemp -d)/Snowfall.iconset"
+mkdir -p "$ICONSET"
+swift Tools/make-icon.swift "$ICONSET/icon_1024.png"
+for size in 16 32 128 256 512; do
+  sips -z $size $size "$ICONSET/icon_1024.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) "$ICONSET/icon_1024.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+rm "$ICONSET/icon_1024.png"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Snowfall.icns"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28,8 +39,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>dev.sandbox.snowfall</string>
   <key>CFBundleExecutable</key><string>Snowfall</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleIconFile</key><string>Snowfall</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>

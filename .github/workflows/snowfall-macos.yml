@@ -15,10 +15,20 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build app bundle
+      - name: Build universal app bundle
         working-directory: MacOS/Snowfall
-        run: ./build-app.sh
+        run: UNIVERSAL=1 ./build-app.sh
+      - name: Check architectures
+        working-directory: MacOS/Snowfall
+        run: lipo -info build/Snowfall.app/Contents/MacOS/Snowfall
+      - name: Package DMG installer
+        working-directory: MacOS/Snowfall
+        run: ./make-dmg.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Snowfall.app
-          path: MacOS/Snowfall/build/Snowfall.app
+          name: Snowfall-dmg
+          path: MacOS/Snowfall/build/Snowfall.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowfall-icon
+          path: MacOS/Snowfall/build/Snowfall.app/Contents/Resources/Snowfall.icns
