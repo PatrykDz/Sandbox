@@ -52,6 +52,7 @@ enum Wind: Int, CaseIterable {
     }
 }
 
+/// Preferences, cached in memory (they are read every frame) and persisted to UserDefaults.
 @MainActor
 final class Settings {
     static let shared = Settings()
@@ -59,37 +60,31 @@ final class Settings {
 
     private let defaults = UserDefaults.standard
 
+    var enabled: Bool { didSet { save(enabled, Keys.enabled) } }
+    var intensity: Intensity { didSet { save(intensity.rawValue, Keys.intensity) } }
+    var wind: Wind { didSet { save(wind.rawValue, Keys.wind) } }
+    /// Whether snow piles up on window tops and the Dock.
+    var settle: Bool { didSet { save(settle, Keys.settle) } }
+    /// Whether moving the pointer stirs falling snow and knocks settled snow loose.
+    var pointer: Bool { didSet { save(pointer, Keys.pointer) } }
+
     private init() {
         defaults.register(defaults: [
             Keys.enabled: true,
             Keys.intensity: Intensity.moderate.rawValue,
             Keys.wind: Wind.breeze.rawValue,
             Keys.settle: true,
+            Keys.pointer: true,
         ])
+        enabled = defaults.bool(forKey: Keys.enabled)
+        intensity = Intensity(rawValue: defaults.integer(forKey: Keys.intensity)) ?? .moderate
+        wind = Wind(rawValue: defaults.integer(forKey: Keys.wind)) ?? .breeze
+        settle = defaults.bool(forKey: Keys.settle)
+        pointer = defaults.bool(forKey: Keys.pointer)
     }
 
-    var enabled: Bool {
-        get { defaults.bool(forKey: Keys.enabled) }
-        set { defaults.set(newValue, forKey: Keys.enabled); notify() }
-    }
-
-    var intensity: Intensity {
-        get { Intensity(rawValue: defaults.integer(forKey: Keys.intensity)) ?? .moderate }
-        set { defaults.set(newValue.rawValue, forKey: Keys.intensity); notify() }
-    }
-
-    var wind: Wind {
-        get { Wind(rawValue: defaults.integer(forKey: Keys.wind)) ?? .breeze }
-        set { defaults.set(newValue.rawValue, forKey: Keys.wind); notify() }
-    }
-
-    /// Whether snow piles up on window tops and the Dock.
-    var settle: Bool {
-        get { defaults.bool(forKey: Keys.settle) }
-        set { defaults.set(newValue, forKey: Keys.settle); notify() }
-    }
-
-    private func notify() {
+    private func save(_ value: Any, _ key: String) {
+        defaults.set(value, forKey: key)
         NotificationCenter.default.post(name: Settings.didChange, object: self)
     }
 
@@ -98,5 +93,6 @@ final class Settings {
         static let intensity = "intensity"
         static let wind = "wind"
         static let settle = "settle"
+        static let pointer = "pointer"
     }
 }

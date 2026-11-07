@@ -3,14 +3,21 @@
 A tiny menu-bar app that lets it snow over your Mac desktop.
 
 - Snow falls over everything in a transparent, **click-through** overlay — you keep working normally.
-- Flakes **settle on the tops of windows** and on the **Dock**, building small drifts.
+- Flakes **settle on the tops of windows** and on the **Dock**, building a continuous, smooth
+  snow cap that grows over time (and avoids the rounded window corners).
 - **Drag a window and the snow slides off it**, flung in the direction you moved it.
-- Snow on a window melts when the window closes, minimizes or gets covered by another window.
-- Depth: distant flakes are smaller, fainter and slower; only near flakes settle.
+- **Your pointer stirs the snow**: falling flakes swirl in its wake, and a quick swipe through a
+  snow cap kicks it loose.
+- Snow is **kept, not lost**, when a window is covered by another one, minimized, or on another
+  Space; it reappears when the window comes back to the same place.
+- Depth: distant flakes are smaller, fainter and slower; only near flakes settle. A few of the
+  closest flakes are slowly spinning six-armed crystals.
+- The sky is already full of snow at launch.
 - Menu bar controls: on/off, intensity (Light / Moderate / Blizzard), wind (Calm / Breeze / Gusty),
-  pile-up toggle, "Shake Off Settled Snow", Launch at Login.
+  pile-up toggle, pointer toggle, "Shake Off Settled Snow", Launch at Login.
 - Rendered on the GPU with SpriteKit. Density is halved and frame rate drops to 30 fps on battery
-  or in Low Power Mode. Pauses while a full-screen app owns the display and while displays sleep.
+  or in Low Power Mode; density is also halved with Reduce Motion. Everything (including window
+  polling) pauses while a full-screen app owns the display and while displays sleep.
 - Works on every connected display; rebuilds when displays change.
 
 No permissions are needed: window positions come from `CGWindowListCopyWindowInfo`, which doesn't

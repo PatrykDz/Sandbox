@@ -11,6 +11,7 @@ final class OverlayWindow: NSWindow {
         hasShadow = false
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
+        animationBehavior = .none
         // Just above the Dock so snow can rest on it, but below the menu bar and menus.
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) + 1)
         // Follow the user across Spaces. Deliberately *not* .fullScreenAuxiliary, so the
@@ -31,6 +32,10 @@ final class OverlayWindow: NSWindow {
 @MainActor
 final class SnowOverlay {
     let screen: NSScreen
+    /// Called when the overlay starts or stops rendering.
+    var onRunningChange: (() -> Void)?
+    private(set) var isRunning = false
+
     private let window: OverlayWindow
     private let skView: SKView
     private let scene: SnowScene
@@ -48,7 +53,9 @@ final class SnowOverlay {
         skView.preferredFramesPerSecond = PowerMonitor.shared.preferredFPS
         skView.autoresizingMask = [.width, .height]
 
-        scene = SnowScene(screenRect: Self.globalRect(of: screen))
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        scene = SnowScene(screenRect: Self.globalRect(of: screen, primaryHeight: primaryHeight),
+                          primaryHeight: primaryHeight)
         window.contentView = skView
         skView.presentScene(scene)
 
@@ -65,8 +72,10 @@ final class SnowOverlay {
     }
 
     func tearDown() {
+        onRunningChange = nil
         if let observer = occlusionObserver {
             NotificationCenter.default.removeObserver(observer)
+            occlusionObserver = nil
         }
         skView.presentScene(nil)
         window.orderOut(nil)
@@ -82,21 +91,25 @@ final class SnowOverlay {
         skView.preferredFramesPerSecond = PowerMonitor.shared.preferredFPS
     }
 
-    func clearSettledSnow() {
-        scene.clearSettledSnow()
+    func shakeOffSettledSnow() {
+        scene.shakeOffSettledSnow()
     }
 
     /// Pause when the display sleeps, or when the overlay isn't visible
     /// (e.g. a full-screen app owns this display).
     private func updatePaused() {
         let visible = window.occlusionState.contains(.visible)
-        skView.isPaused = externallyPaused || !visible
+        let running = !externallyPaused && visible
+        skView.isPaused = !running
+        if running != isRunning {
+            isRunning = running
+            onRunningChange?()
+        }
     }
 
     /// The screen's frame converted to global CoreGraphics coordinates
     /// (top-left origin on the primary display, y down), matching window bounds.
-    static func globalRect(of screen: NSScreen) -> CGRect {
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+    static func globalRect(of screen: NSScreen, primaryHeight: CGFloat) -> CGRect {
         let f = screen.frame
         return CGRect(x: f.minX, y: primaryHeight - f.maxY, width: f.width, height: f.height)
     }

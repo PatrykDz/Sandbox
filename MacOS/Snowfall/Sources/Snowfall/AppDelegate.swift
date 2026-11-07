@@ -32,18 +32,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func buildOverlays() {
         removeOverlays()
-        WindowTracker.shared.start()
         overlays = NSScreen.screens.map { SnowOverlay(screen: $0) }
         for overlay in overlays {
+            overlay.onRunningChange = { [weak self] in self?.updateTracker() }
             overlay.setPaused(displaysAsleep)
             overlay.show()
         }
+        updateTracker()
     }
 
     private func removeOverlays() {
         overlays.forEach { $0.tearDown() }
         overlays.removeAll()
-        WindowTracker.shared.stop()
+        updateTracker()
+    }
+
+    /// Only poll window positions while at least one display is actually showing snow
+    /// (not asleep, not covered by a full-screen app).
+    private func updateTracker() {
+        if overlays.contains(where: \.isRunning) {
+            WindowTracker.shared.start()
+        } else {
+            WindowTracker.shared.stop()
+        }
     }
 
     private func observeSystem() {
@@ -73,11 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setDisplaysAsleep(_ asleep: Bool) {
         displaysAsleep = asleep
         overlays.forEach { $0.setPaused(asleep) }
-        if asleep {
-            WindowTracker.shared.stop()
-        } else if settings.enabled {
-            WindowTracker.shared.start()
-        }
+        updateTracker()
     }
 
     // MARK: - Menu bar
@@ -85,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
+        menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
         updateStatusIcon()
@@ -132,12 +140,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settle.state = settings.settle ? .on : .off
         menu.addItem(settle)
 
-        let clear = item("Shake Off Settled Snow", #selector(clearSnow))
-        clear.isEnabled = settings.enabled
-        menu.addItem(clear)
+        let pointer = item("Pointer Stirs Snow", #selector(togglePointer))
+        pointer.state = settings.pointer ? .on : .off
+        menu.addItem(pointer)
 
-        if PowerMonitor.shared.isConstrained {
-            let note = NSMenuItem(title: "Reduced for battery / Low Power Mode", action: nil, keyEquivalent: "")
+        let shake = item("Shake Off Settled Snow", #selector(shakeOffSnow))
+        shake.isEnabled = settings.enabled
+        menu.addItem(shake)
+
+        let power = PowerMonitor.shared
+        if power.isConstrained || power.reduceMotion {
+            let reason = power.isConstrained ? "battery / Low Power Mode" : "Reduce Motion"
+            let note = NSMenuItem(title: "Lighter snow (\(reason))", action: nil, keyEquivalent: "")
             note.isEnabled = false
             menu.addItem(note)
         }
@@ -175,8 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.settle.toggle()
     }
 
-    @objc private func clearSnow() {
-        overlays.forEach { $0.clearSettledSnow() }
+    @objc private func togglePointer() {
+        settings.pointer.toggle()
+    }
+
+    @objc private func shakeOffSnow() {
+        overlays.forEach { $0.shakeOffSettledSnow() }
     }
 
     @objc private func toggleLaunchAtLogin() {

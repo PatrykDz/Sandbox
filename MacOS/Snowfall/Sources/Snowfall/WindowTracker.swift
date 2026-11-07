@@ -11,10 +11,13 @@ struct TrackedWindow {
 }
 
 enum SurfaceEvent {
-    /// The window moved or changed width; anything resting on it should slide off.
+    /// The window moved or changed width while on screen; snow on it should slide off.
     case moved(CGWindowID, velocity: CGVector)
-    /// The window closed, minimized or left this Space; resting snow melts away.
+    /// The window left the screen (closed, minimized, other Space, Mission Control...).
+    /// Its snow is kept hidden in case it comes back.
     case vanished(CGWindowID)
+    /// A window that had vanished came back somewhere else; its old snow is gone.
+    case relocated(CGWindowID)
 }
 
 /// Polls the window server for the positions of on-screen windows so the snow
@@ -29,15 +32,26 @@ final class WindowTracker {
     /// Normal app windows, ordered front to back.
     private(set) var windows: [TrackedWindow] = []
     private(set) var framesByID: [CGWindowID: CGRect] = [:]
+    /// Front-to-back position of each window in `windows`.
+    private(set) var indexByID: [CGWindowID: Int] = [:]
     /// Rects of the Dock's window(s), if it is visible.
     private(set) var dockRects: [CGRect] = []
 
+    private(set) var isRunning = false
     private var observers: [UUID: ([SurfaceEvent]) -> Void] = [:]
     private var timer: Timer?
     private var lastPoll: CFTimeInterval = 0
+    /// Last frame of windows that left the screen, so we can tell if they return unchanged.
+    private var parked: [CGWindowID: (frame: CGRect, since: CFTimeInterval)] = [:]
+    private let parkedLifetime: CFTimeInterval = 600
     private let pollInterval: TimeInterval = 1.0 / 15.0
-    private let ownPID = ProcessInfo.processInfo.processIdentifier
+    private let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
     private let dockLevel = Int(CGWindowLevelForKey(.dockWindow))
+    /// System processes whose normal-level windows are not real app windows.
+    private let ignoredOwners: Set<String> = [
+        "Window Server", "Dock", "Control Center", "Notification Center",
+        "SystemUIServer", "Spotlight", "screencaptureui", "Screenshot",
+    ]
 
     private init() {}
 
@@ -53,6 +67,8 @@ final class WindowTracker {
 
     func start() {
         guard timer == nil else { return }
+        isRunning = true
+        lastPoll = 0
         poll()
         let timer = Timer(timeInterval: pollInterval, repeats: true) { _ in
             MainActor.assumeIsolated { WindowTracker.shared.poll() }
@@ -65,12 +81,14 @@ final class WindowTracker {
     func stop() {
         timer?.invalidate()
         timer = nil
+        isRunning = false
     }
 
     /// True when `point` is not covered by any window in front of the window at `index`.
     func isPointVisible(_ point: CGPoint, inFrontOf index: Int) -> Bool {
+        let end = min(index, windows.count)
         var i = 0
-        while i < index && i < windows.count {
+        while i < end {
             if windows[i].frame.contains(point) { return false }
             i += 1
         }
@@ -82,10 +100,6 @@ final class WindowTracker {
         isPointVisible(point, inFrontOf: windows.count)
     }
 
-    func index(of id: CGWindowID) -> Int? {
-        windows.firstIndex { $0.id == id }
-    }
-
     private func poll() {
         guard let info = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
@@ -93,6 +107,8 @@ final class WindowTracker {
 
         let now = CACurrentMediaTime()
         let dt = lastPoll == 0 ? pollInterval : max(now - lastPoll, 1.0 / 120.0)
+        // A long gap (e.g. after a pause) would give meaningless velocities.
+        let velocityScale: CGFloat = (lastPoll == 0 || now - lastPoll > 0.5) ? 0 : 1
         lastPoll = now
 
         var newWindows: [TrackedWindow] = []
@@ -106,39 +122,54 @@ final class WindowTracker {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
             else { continue }
 
-            if pid == Int(ownPID) { continue }
+            if pid == ownPID { continue }
             let alpha = entry[kCGWindowAlpha as String] as? Double ?? 1
             if alpha < 0.05 { continue }
 
-            let owner = entry[kCGWindowOwnerName as String] as? String
+            let owner = entry[kCGWindowOwnerName as String] as? String ?? ""
             if owner == "Dock" && layer == dockLevel {
                 newDocks.append(bounds)
                 continue
             }
 
-            guard layer == 0, bounds.width >= 80, bounds.height >= 40 else { continue }
+            guard layer == 0, bounds.width >= 80, bounds.height >= 40,
+                  !ignoredOwners.contains(owner) else { continue }
             newWindows.append(TrackedWindow(id: CGWindowID(truncatingIfNeeded: number), frame: bounds))
         }
 
         var newFrames: [CGWindowID: CGRect] = [:]
+        var newIndex: [CGWindowID: Int] = [:]
         newFrames.reserveCapacity(newWindows.count)
+        newIndex.reserveCapacity(newWindows.count)
         var events: [SurfaceEvent] = []
 
-        for window in newWindows {
-            newFrames[window.id] = window.frame
-            guard let old = framesByID[window.id] else { continue }
+        for (i, window) in newWindows.enumerated() {
             let f = window.frame
-            if old.minX != f.minX || old.minY != f.minY || old.width != f.width {
-                let velocity = CGVector(dx: (f.minX - old.minX) / dt, dy: (f.minY - old.minY) / dt)
-                events.append(.moved(window.id, velocity: velocity))
+            newFrames[window.id] = f
+            newIndex[window.id] = i
+            if let old = framesByID[window.id] {
+                if old.minX != f.minX || old.minY != f.minY || old.width != f.width {
+                    let velocity = CGVector(
+                        dx: (f.minX - old.minX) / dt * velocityScale,
+                        dy: (f.minY - old.minY) / dt * velocityScale
+                    )
+                    events.append(.moved(window.id, velocity: velocity))
+                }
+            } else if let back = parked.removeValue(forKey: window.id) {
+                if back.frame.minX != f.minX || back.frame.minY != f.minY || back.frame.width != f.width {
+                    events.append(.relocated(window.id))
+                }
             }
         }
-        for id in framesByID.keys where newFrames[id] == nil {
+        for (id, frame) in framesByID where newFrames[id] == nil {
             events.append(.vanished(id))
+            parked[id] = (frame, now)
         }
+        parked = parked.filter { now - $0.value.since < parkedLifetime }
 
         windows = newWindows
         framesByID = newFrames
+        indexByID = newIndex
         dockRects = newDocks
 
         for handler in observers.values {
