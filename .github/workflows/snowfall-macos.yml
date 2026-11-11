@@ -1,0 +1,61 @@
+name: Snowfall (macOS)
+
+# Every push builds the universal app and DMG. On a push (not a PR), if there is no
+# GitHub Release yet for the version in MacOS/Snowfall/VERSION, one is published
+# with tag snowfall-v<version>. To release a new version, bump that file.
+on:
+  push:
+    paths:
+      - "MacOS/Snowfall/**"
+      - ".github/workflows/snowfall-macos.yml"
+  pull_request:
+    paths:
+      - "MacOS/Snowfall/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        run: |
+          echo "VERSION=$(tr -d '[:space:]' < MacOS/Snowfall/VERSION)" >> "$GITHUB_ENV"
+          echo "BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Build universal app bundle
+        working-directory: MacOS/Snowfall
+        run: UNIVERSAL=1 ./build-app.sh
+
+      - name: Check architectures
+        working-directory: MacOS/Snowfall
+        run: lipo -info build/Snowfall.app/Contents/MacOS/Snowfall
+
+      - name: Package DMG installer
+        working-directory: MacOS/Snowfall
+        run: ./make-dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Snowfall-dmg
+          path: MacOS/Snowfall/build/Snowfall.dmg
+
+      - name: Publish GitHub Release (if this version is new)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: MacOS/Snowfall
+        run: |
+          TAG="snowfall-v$VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            exit 0
+          fi
+          gh release create "$TAG" build/Snowfall.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Snowfall $VERSION" \
+            --notes-file RELEASE_NOTES.md
