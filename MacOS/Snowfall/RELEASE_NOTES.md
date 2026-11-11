@@ -8,10 +8,15 @@ Snowfall is a small menu-bar app that lets it snow over your Mac desktop. Snow f
    Or run this in Terminal: `xattr -dr com.apple.quarantine /Applications/Snowfall.app`
 3. Look for the ❄︎ icon in the menu bar. Snowfall has no Dock icon or window.
 
+### New in 1.2
+- Settled snow now behaves like a real mass: it rides along when you move a window gently, slides and spills off the edge when you jerk the window, and lifts off and falls when you yank the window down
+- Falling snow comes down in clumps under gravity, crumbles and trails powder, and piles up again where it lands
+- Drifts form a smooth natural slope and crumble over the ends when they get deep
+- Resizing a window keeps the snow in place
+
 ### Features
 - Snow falls over everything, and clicks pass straight through to what's underneath
 - Snow builds smooth drifts on window tops and the Dock
-- Dragging a window throws its snow off in the direction you moved it
 - The mouse pointer swirls falling snow, and a quick swipe knocks drifts loose
 - Snow on a window is kept while the window is covered, minimised or on another Space
 - Menu settings: intensity (Light, Moderate, Blizzard), wind (Calm, Breeze, Gusty), piling on or off, pointer effects on or off, Shake Off Settled Snow, Launch at Login

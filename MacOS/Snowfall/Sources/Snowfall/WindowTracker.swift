@@ -45,6 +45,8 @@ final class WindowTracker {
     private var parked: [CGWindowID: (frame: CGRect, since: CFTimeInterval)] = [:]
     private let parkedLifetime: CFTimeInterval = 600
     private let pollInterval: TimeInterval = 1.0 / 15.0
+    private var tick = 0
+    private var fastUntil: CFTimeInterval = 0
     private let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
     private let dockLevel = Int(CGWindowLevelForKey(.dockWindow))
     /// System processes whose normal-level windows are not real app windows.
@@ -69,13 +71,21 @@ final class WindowTracker {
         guard timer == nil else { return }
         isRunning = true
         lastPoll = 0
+        tick = 0
         poll()
-        let timer = Timer(timeInterval: pollInterval, repeats: true) { _ in
-            MainActor.assumeIsolated { WindowTracker.shared.poll() }
+        // Ticks at 60 Hz, but only polls every 4th tick unless a window moved recently:
+        // idle cost stays low while drags are tracked smoothly.
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+            MainActor.assumeIsolated { WindowTracker.shared.timerFired() }
         }
         // Keep polling while menus are open or windows are being dragged.
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+    }
+
+    private func timerFired() {
+        tick &+= 1
+        if CACurrentMediaTime() < fastUntil || tick % 4 == 0 { poll() }
     }
 
     func stop() {
@@ -166,6 +176,10 @@ final class WindowTracker {
             parked[id] = (frame, now)
         }
         parked = parked.filter { now - $0.value.since < parkedLifetime }
+
+        if events.contains(where: { if case .moved = $0 { return true } else { return false } }) {
+            fastUntil = now + 0.6
+        }
 
         windows = newWindows
         framesByID = newFrames
